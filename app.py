@@ -20,10 +20,19 @@ st.set_page_config(
 )
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", st.secrets.get("PINECONE_API_KEY", ""))
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", st.secrets.get("PINECONE_INDEX_NAME", "swiss-tax"))
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", st.secrets.get("OPENROUTER_API_KEY", ""))
-MODEL = os.getenv("MODEL", st.secrets.get("MODEL", "openai/gpt-4o"))
+def _secret(key: str, default: str = "") -> str:
+    """Read from env first, then Streamlit secrets (gracefully if missing)."""
+    if val := os.getenv(key):
+        return val
+    try:
+        return st.secrets[key]
+    except Exception:
+        return default
+
+PINECONE_API_KEY = _secret("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = _secret("PINECONE_INDEX_NAME", "swiss-tax")
+OPENROUTER_API_KEY = _secret("OPENROUTER_API_KEY")
+MODEL = _secret("MODEL", "openai/gpt-4o")
 
 
 # ── Cached resources ──────────────────────────────────────────────────────────

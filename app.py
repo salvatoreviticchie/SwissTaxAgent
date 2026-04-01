@@ -11,6 +11,7 @@ from pinecone import Pinecone
 
 from agents.orchestrator import Orchestrator
 from retrieval.document_ingestion import ingest_file
+from retrieval.pinecone_retriever import PineconeRetriever
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -21,7 +22,6 @@ st.set_page_config(
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 def _secret(key: str, default: str = "") -> str:
-    """Read from env first, then Streamlit secrets (gracefully if missing)."""
     if val := os.getenv(key):
         return val
     try:
@@ -29,18 +29,20 @@ def _secret(key: str, default: str = "") -> str:
     except Exception:
         return default
 
-PINECONE_API_KEY = _secret("PINECONE_API_KEY")
-PINECONE_INDEX_NAME = _secret("PINECONE_INDEX_NAME", "swiss-tax")
-OPENROUTER_API_KEY = _secret("OPENROUTER_API_KEY")
-MODEL = _secret("MODEL", "openai/gpt-4o")
+PINECONE_API_KEY    = _secret("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = _secret("PINECONE_INDEX_NAME", "rag-docs")
+OPENROUTER_API_KEY  = _secret("OPENROUTER_API_KEY")
+MODEL               = _secret("MODEL", "google/gemma-3-27b-it:free")
 
 
 # ── Cached resources ──────────────────────────────────────────────────────────
 @st.cache_resource
-def get_pinecone_index():
-    pc = Pinecone(api_key=PINECONE_API_KEY)
-    return pc.Index(PINECONE_INDEX_NAME)
+def get_pc() -> Pinecone:
+    return Pinecone(api_key=PINECONE_API_KEY)
 
+@st.cache_resource
+def get_pinecone_index():
+    return get_pc().Index(PINECONE_INDEX_NAME)
 
 @st.cache_resource
 def get_openrouter_client():
@@ -49,11 +51,11 @@ def get_openrouter_client():
         base_url="https://openrouter.ai/api/v1",
     )
 
-
 @st.cache_resource
 def get_orchestrator():
     return Orchestrator(
         pinecone_index=get_pinecone_index(),
+        pinecone_client=get_pc(),
         openrouter_client=get_openrouter_client(),
         model=MODEL,
     )
@@ -70,7 +72,7 @@ with st.sidebar:
     st.caption("Canton Vaud · ICC / IFD")
     st.divider()
 
-    st.subheader("Upload Documents")
+    st.subheader("Upload your documents")
     uploaded_files = st.file_uploader(
         "PDF, DOCX, or TXT",
         type=["pdf", "docx", "txt"],
@@ -78,12 +80,8 @@ with st.sidebar:
     )
 
     if uploaded_files and st.button("Ingest Documents"):
-        index = get_pinecone_index()
-        retriever_module = __import__(
-            "retrieval.pinecone_retriever", fromlist=["PineconeRetriever"]
-        )
-        retriever = retriever_module.PineconeRetriever(index)
-
+        retriever = PineconeRetriever(get_pinecone_index(), namespace="swiss-tax")
+        retriever.set_pc(get_pc())
         with st.spinner("Ingesting…"):
             total = 0
             for uf in uploaded_files:
@@ -91,7 +89,7 @@ with st.sidebar:
                     tmp.write(uf.read())
                     tmp_path = tmp.name
                 chunks = ingest_file(tmp_path, source_name=uf.name)
-                retriever.upsert_chunks(chunks)
+                retriever.upsert_chunks(chunks, pc=get_pc())
                 total += len(chunks)
         st.success(f"Ingested {total} chunks from {len(uploaded_files)} file(s).")
 

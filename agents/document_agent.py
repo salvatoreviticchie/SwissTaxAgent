@@ -1,14 +1,15 @@
 """
 Document agent — retrieves relevant chunks from Pinecone and answers questions
-about uploaded tax documents.
+about Swiss tax documents (pre-ingested from vd.ch).
 """
 
 from retrieval.pinecone_retriever import PineconeRetriever
 
 
 class DocumentAgent:
-    def __init__(self, pinecone_index, openrouter_client, model: str):
-        self.retriever = PineconeRetriever(pinecone_index)
+    def __init__(self, pinecone_index, pinecone_client, openrouter_client, model: str):
+        self.retriever = PineconeRetriever(pinecone_index, namespace="swiss-tax")
+        self.retriever.set_pc(pinecone_client)
         self.client = openrouter_client
         self.model = model
 
@@ -17,15 +18,16 @@ class DocumentAgent:
 
         if not chunks:
             return (
-                "I could not find relevant information in the uploaded documents. "
-                "Please make sure you have uploaded your tax documents."
+                "Je n'ai pas trouvé d'information pertinente dans les documents fiscaux disponibles. "
+                "Essayez de reformuler votre question."
             )
 
         context = "\n\n---\n\n".join(chunks)
         system_prompt = (
             "You are a Swiss tax expert (Canton Vaud, ICC/IFD). "
-            "Use ONLY the context below to answer. "
-            "If the answer is not in the context, say so.\n\n"
+            "Use ONLY the context below — extracted from official vd.ch documents — to answer. "
+            "Always cite the source filename when relevant. "
+            "If the answer is not in the context, say so clearly.\n\n"
             f"Context:\n{context}"
         )
 
